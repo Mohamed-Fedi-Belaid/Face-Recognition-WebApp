@@ -1,63 +1,64 @@
 import streamlit as st
-from PIL import Image
-import numpy as np
 import joblib
-from skimage import color, transform, feature
-import matplotlib.pyplot as plt
+import numpy as np
+import cv2
+from io import BytesIO
 
+# Chargement du modèle sauvegardé
+model = joblib.load('modelLab1.sav')
 
-# Charger le modèle
-loaded_model = joblib.load('face_detection_model.sav')
+# Titre de l'application
+st.title("FACE DETECTION APPLICATION")
 
-# Titre et description de l'application
-st.title("Détection de Visages")
-st.markdown("Téléchargez une image et cliquez sur le bouton pour détecter les visages.")
+# Section de téléchargement de fichier
+st.header("Téléchargez une image pour la détection de visage")
+uploaded_image = st.file_uploader("Sélectionnez une image...", type=["jpg", "png", "jpeg"])
 
-# Sélectionner une image depuis l'ordinateur
-uploaded_image = st.file_uploader("Choisir une image...", type=["jpg", "png", "jpeg"])
-
-def sliding_window(img, patch_size=(62, 47), istep=2, jstep=2, scale=1.0):
-    Ni, Nj = (int(scale * s) for s in patch_size)
-    for i in range(0, img.shape[0] - Ni, istep):
-        for j in range(0, img.shape[1] - Ni, jstep):
-            patch = img[i:i + Ni, j:j + Nj]
-            if scale != 1:
-                patch = transform.resize(patch, patch_size)
-            yield (i, j), patch
-
-def draw_red_rectangles(image, indices, labels):
-    fig, ax = plt.subplots()
-    ax.imshow(image, cmap='gray')
-    ax.axis('off')
-
-    Ni, Nj = (42,67)
-    indices = np.array(indices)
-
-    for i, j in indices[labels == 1]:
-        ax.add_patch(plt.Rectangle((j, i), Nj, Ni, edgecolor='red', alpha=0.3, lw=2, facecolor='none'))
-
-    return fig
-
+# Vérifie si un fichier a été téléchargé
 if uploaded_image is not None:
-    # Charger l'image et la prétraiter
-    img = Image.open(uploaded_image)
-    img = np.array(img)
-    gray_img = color.rgb2gray(img)
-    resized_img = transform.rescale(gray_img, 0.5)
-    cropped_img = resized_img
+    # Affiche l'image téléchargée
+    st.image(uploaded_image, caption="Image téléchargée", use_column_width=True)
 
-    # Afficher l'image
-    st.image(cropped_img, caption="Image Téléchargée", use_column_width=True)
+# Fonction pour prétraiter l'image et effectuer la classification
+def classify_image(image):
+    # Enregistrez l'image téléchargée temporairement sur le disque
+    with BytesIO() as buffer:
+        buffer.write(image.read())
+        buffer.seek(0)
+        img = cv2.imdecode(np.frombuffer(buffer.read(), np.uint8), -1)
+    
+    # Redimensionnez l'image et convertissez-la en niveaux de gris
+    img = cv2.resize(img, (128, 128))
+    img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    img_gray = img_gray / 255.0  # Normalisation des pixels
+    
+    # Aplatir l'image en un vecteur 1D
+    img_flat = img_gray.flatten()
 
-    # Bouton pour détecter les visages
-    if st.button("Détecter les visages"):
-        # Extraire les patches
-        indices, patches = zip(*sliding_window(cropped_img))
-        patches_hog = np.array([feature.hog(patch) for patch in patches])
+     # Vérifiez que la longueur du vecteur est correcte (1215)
+    if len(img_flat) != 1215:
+        st.error("La longueur du vecteur d'images n'est pas correcte.")
+        return None
 
-        # Prédire les visages
-        labels = loaded_model.predict(patches_hog)
+    # Effectuer la classification avec le modèle
+    result = model.predict([img_flat])  # Notez l'utilisation de crochets pour créer une liste de 1 échantillon
+    return result[0] if result is not None else None
 
-        # Dessiner les rectangles rouges autour des visages détectés
-        fig = draw_red_rectangles(cropped_img, indices, labels)
-        st.pyplot(fig)
+if st.button("FACE DETECTION"):
+    # Classification de l'image
+    result = classify_image(uploaded_image)
+
+    # Afficher le résultat
+    if result is not None:
+        if result > 0.5:
+            st.success("Cette image contient un visage.")
+        else:
+            st.warning("Cette image ne contient pas de visage.")
+    else:
+        st.error("Erreur lors de la classification de l'image.")
+
+# Note d'information
+st.info("Cette application permet de télécharger une image et de détecter les visages dans l'image.")
+
+# Note de pied de page
+st.text("Réalisé par Mohamed Fedi BELAID")
